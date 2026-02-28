@@ -35,30 +35,20 @@ def ensure_download_dir() -> Path:
 def _rename_to_sanitized(info: dict, download_dir: Path) -> Path:
     """
     Given a yt-dlp info dict and the directory where the file was saved,
-    rename it to a sanitized title-based filename and return the final path.
+    rename id.mp4 to a sanitized title.mp4. Only .mp4 files are considered.
     """
     video_id = info.get("id")
     title = info.get("title") or video_id or "video"
-    ext = info.get("ext") or "mp4"
-
     sanitized_title = sanitize_filename(title)
-    final_path = download_dir / f"{sanitized_title}.{ext}"
+    final_path = download_dir / f"{sanitized_title}.mp4"
 
-    # We used id-based template when downloading, so the original name is id.ext
     if video_id:
-        original_path = download_dir / f"{video_id}.{ext}"
+        original_path = download_dir / f"{video_id}.mp4"
         if original_path.exists():
             if original_path != final_path:
                 original_path.replace(final_path)
             return final_path
 
-    # Fallback: try to locate any file with the same extension
-    for candidate in download_dir.glob(f"*.{ext}"):
-        # If it already matches final_path, just return it
-        if candidate == final_path:
-            return final_path
-
-    # If nothing matched, just return final_path (may or may not exist)
     return final_path
 
 
@@ -82,6 +72,9 @@ def download_videos(
         # Ignore any global yt-dlp.conf on the system that might request
         # an unavailable format (e.g. fixed itag like 22).
         "ignoreconfig": True,
+        # Only download .mp4 (merge with ffmpeg if needed).
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+        "merge_output_format": "mp4",
     }
 
     if cookiefile and Path(cookiefile).exists():
@@ -102,7 +95,7 @@ def download_videos(
             raise
 
         fallback_opts = dict(ydl_opts)
-        fallback_opts["format"] = "best"  # let yt-dlp pick any single best file
+        fallback_opts["format"] = "best[ext=mp4]"  # only mp4, no other formats
 
         with YoutubeDL(fallback_opts) as ydl:
             info = ydl.extract_info(url, download=True)
