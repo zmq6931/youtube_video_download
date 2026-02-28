@@ -34,22 +34,23 @@ def ensure_download_dir() -> Path:
 
 def _rename_to_sanitized(info: dict, download_dir: Path) -> Path:
     """
-    Given a yt-dlp info dict and the directory where the file was saved,
-    rename id.mp4 to a sanitized title.mp4. Only .mp4 files are considered.
+    Find the downloaded file (id.ext) and rename to sanitized title.ext.
+    Supports .mp4, .webm, .mkv (e.g. when "best" fallback is used).
     """
     video_id = info.get("id")
     title = info.get("title") or video_id or "video"
     sanitized_title = sanitize_filename(title)
-    final_path = download_dir / f"{sanitized_title}.mp4"
 
     if video_id:
-        original_path = download_dir / f"{video_id}.mp4"
-        if original_path.exists():
-            if original_path != final_path:
-                original_path.replace(final_path)
-            return final_path
+        for ext in ("mp4", "webm", "mkv", "m4a"):
+            original_path = download_dir / f"{video_id}.{ext}"
+            if original_path.exists():
+                final_path = download_dir / f"{sanitized_title}.{ext}"
+                if original_path != final_path:
+                    original_path.replace(final_path)
+                return final_path
 
-    return final_path
+    return download_dir / f"{sanitized_title}.mp4"
 
 
 def download_videos(
@@ -72,8 +73,8 @@ def download_videos(
         # Ignore any global yt-dlp.conf on the system that might request
         # an unavailable format (e.g. fixed itag like 22).
         "ignoreconfig": True,
-        # Prefer any best video+audio, merge to .mp4 (avoids "format not available" when YouTube has no mp4).
-        "format": "bestvideo+bestaudio/best[ext=mp4]/best",
+        # Use "best" first (single stream, no merge) so format is always available; then try merge for mp4.
+        "format": "best",
         "merge_output_format": "mp4",
     }
 
@@ -82,9 +83,7 @@ def download_videos(
     elif browser:
         ydl_opts["cookiesfrombrowser"] = (browser.lower(),)
 
-    # When using cookies, try Android client first (often avoids 403), then web.
-    if cookiefile or browser:
-        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+    # Don't set player_client here; default client often has more formats. Use Android only on 403 retry.
 
     files: List[Path] = []
 
@@ -109,16 +108,18 @@ def download_videos(
             fallback_opts = dict(ydl_opts)
             fallback_opts["format"] = "best[ext=mp4]"
             info = _do_download(fallback_opts)
-        # Requested format not available: try single mp4 then any format merged to mp4.
-        elif "Requested format is not available" in err_msg:
-            try:
-                fallback_opts = dict(ydl_opts)
-                fallback_opts["format"] = "best[ext=mp4]"
-                info = _do_download(fallback_opts)
-            except Exception:
-                fallback_opts = dict(ydl_opts)
-                fallback_opts["format"] = "bestvideo+bestaudio/best"
-                info = _do_download(fallback_opts)
+        # Format not available: try merge (bestvideo+bestaudio) then single best.
+        elif "format is not available" in err_msg or "Requested format" in err_msg:
+            for fallback_fmt in ("bestvideo+bestaudio/best", "best[ext=mp4]", "best"):
+                try:
+                    fallback_opts = dict(ydl_opts)
+                    fallback_opts["format"] = fallback_fmt
+                    info = _do_download(fallback_opts)
+                    break
+                except Exception:
+                    continue
+            else:
+                raise e
         else:
             raise
 
@@ -137,72 +138,16 @@ def download_videos(
     return files
 
 
-# Short public YouTube URL used only to verify that cookies/session work (no download).
-VERIFY_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
-
-
-def verify_youtube_login(
-    *,
-    cookiefile: str | Path | None = None,
-    browser: str | None = None,
-) -> tuple[bool, str | None]:
-    """
-    Verify that YouTube session (cookies or browser) works.
-    Returns (True, None) on success, (False, error_message) on failure.
-    """
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "ignoreconfig": True,
-        "extract_flat": True,
-        "skip_download": True,
-    }
-    if cookiefile and Path(cookiefile).exists():
-        opts["cookiefile"] = str(cookiefile)
-    elif browser:
-        opts["cookiesfrombrowser"] = (browser.lower(),)
-    if cookiefile or browser:
-        opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
-    try:
-        with YoutubeDL(opts) as ydl:
-            ydl.extract_info(VERIFY_URL, download=False)
-        return True, None
-    except Exception as e:
-        return False, str(e)
-
-
 def main() -> None:
     st.set_page_config(page_title="YouTube Downloader", page_icon="🎬", layout="centered")
 
-    if "youtube_logged_in" not in st.session_state:
-        st.session_state.youtube_logged_in = False
     if "auth_cookiefile" not in st.session_state:
         st.session_state.auth_cookiefile = None
+
     st.title("YouTube Video / Playlist Downloader")
 
-    # Step 1: Verify login (upload cookies only when verify fails)
-    st.subheader("1. Verify login")
-    st.caption("Click **Verify login**. If already logged in (cookies in session), you can download. If it fails, upload a cookies file below and verify again.")
-    verify_clicked = st.button("Verify login")
-    if verify_clicked:
-        cookiefile_path = st.session_state.auth_cookiefile
-        if cookiefile_path and not Path(cookiefile_path).exists():
-            cookiefile_path = None
-        ok, err = verify_youtube_login(cookiefile=cookiefile_path, browser=None)
-        if ok and cookiefile_path:
-            st.session_state.youtube_logged_in = True
-            st.session_state.auth_cookiefile = cookiefile_path
-            st.success("Login verified. Paste a URL below and download.")
-        else:
-            st.session_state.youtube_logged_in = False
-            st.session_state.auth_cookiefile = None if not ok else cookiefile_path
-            if ok and not cookiefile_path:
-                st.warning("Verify passed but no cookies. Upload cookies file below, then click Verify login again to download.")
-            else:
-                st.error(f"Verify failed: {err}")
-                st.caption("Please **upload cookies file** below (export from browser while logged in to youtube.com), then click Verify login again.")
-
-    st.caption("**Upload cookies file** (only if verify failed above):")
+    st.subheader("1. Upload cookies file (optional)")
+    st.caption("Export cookies from your browser (e.g. \"Get cookies.txt\" extension) while logged in to youtube.com, then upload. Skip if you don't need login.")
     cookie_file = st.file_uploader(
         "Upload cookies.txt",
         type=["txt"],
@@ -213,31 +158,11 @@ def main() -> None:
         cookiefile_path = Path("downloads") / "_cookies.txt"
         cookiefile_path.write_bytes(cookie_file.getvalue())
         st.session_state.auth_cookiefile = cookiefile_path
-        st.caption("Cookies uploaded. Click **Verify login** above.")
-
-    if st.session_state.youtube_logged_in:
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.success("You are logged in. Paste a URL below to download.")
-        with c2:
-            if st.button("Log out"):
-                st.session_state.youtube_logged_in = False
-                st.session_state.auth_cookiefile = None
-                st.rerun()
+        st.caption("Cookies uploaded. Paste a URL below and click Download.")
 
     st.divider()
 
-    # Step 2: Paste URL and download (only after login verified)
     st.subheader("2. Paste URL and download")
-    if not st.session_state.youtube_logged_in:
-        st.warning("Please complete Step 1 and click **Verify login** first. Download is only available after login is verified.")
-        url = st.text_input(
-            "YouTube URL (disabled until logged in)",
-            placeholder="Verify login above first",
-            label_visibility="collapsed",
-            disabled=True,
-        )
-        return
     url = st.text_input(
         "YouTube URL",
         placeholder="https://www.youtube.com/watch?v=... or playlist URL",
@@ -264,8 +189,7 @@ def main() -> None:
                 st.error(f"Download failed: {err_msg}")
                 if "cookies database" in err_msg or "chrome cookies" in err_msg.lower():
                     st.info(
-                        "Browser sign-in does not work on Streamlit Cloud (no browser installed). "
-                        "Please use **Upload cookies file** in Step 1: export cookies from your browser, then upload here."
+                        "On Streamlit Cloud, upload a **cookies.txt** file (export from your browser) above."
                     )
                 elif "403" in err_msg or "Forbidden" in err_msg:
                     st.info(
