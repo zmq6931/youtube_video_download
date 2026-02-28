@@ -97,10 +97,18 @@ def download_videos(
             with YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
         elif "Requested format is not available" in err_msg:
-            fallback_opts = dict(ydl_opts)
-            fallback_opts["format"] = "best[ext=mp4]"
-            with YoutubeDL(fallback_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            # Cloud/anon requests often get fewer formats; try single mp4 then any format merged to mp4.
+            try:
+                fallback_opts = dict(ydl_opts)
+                fallback_opts["format"] = "best[ext=mp4]"
+                with YoutubeDL(fallback_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+            except DownloadError:
+                # Take any video+audio and merge to mp4 (works when YouTube only offers webm etc.).
+                fallback_opts = dict(ydl_opts)
+                fallback_opts["format"] = "bestvideo+bestaudio/best"
+                with YoutubeDL(fallback_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
         else:
             raise
 
