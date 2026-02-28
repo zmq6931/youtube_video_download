@@ -136,7 +136,8 @@ def main() -> None:
     st.subheader("1. Sign in to your YouTube account")
     st.caption(
         "Use a browser where you're already logged in, or upload a cookies file. "
-        "This avoids \"not a bot\" and region/age limits."
+        "This avoids \"not a bot\" and region/age limits. "
+        "**On Streamlit Cloud:** only **Upload cookies file** works (browser option is for local run only)."
     )
     auth_method = st.radio(
         "Sign in with",
@@ -192,7 +193,13 @@ def main() -> None:
                     cookiefile=cookiefile_path,
                 )
             except Exception as e:  # noqa: BLE001
-                st.error(f"Download failed: {e}")
+                err_msg = str(e)
+                st.error(f"Download failed: {err_msg}")
+                if "cookies database" in err_msg or "chrome cookies" in err_msg.lower():
+                    st.info(
+                        "Browser sign-in does not work on Streamlit Cloud (no browser installed). "
+                        "Please use **Upload cookies file** in Step 1: export cookies from your browser, then upload here."
+                    )
                 return
 
         if not files:
