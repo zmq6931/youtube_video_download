@@ -131,38 +131,50 @@ def main() -> None:
     st.set_page_config(page_title="YouTube Downloader", page_icon="🎬", layout="centered")
 
     st.title("YouTube Video / Playlist Downloader")
-    st.write(
-        "Paste a **YouTube video** or **playlist** URL below. "
-        "Click **Download** to fetch the video files. "
-        "Filenames will be cleaned of characters that cannot be used on your system."
-    )
 
-    with st.expander("Authentication (if YouTube says \"Sign in to confirm you're not a bot\")"):
-        st.caption("Use cookies from a browser where you're logged into YouTube, or upload a cookies file.")
-        auth_method = st.radio(
-            "Cookie source",
-            ["None", "Chrome", "Edge", "Firefox", "Brave", "Opera", "Upload cookies file"],
-            horizontal=True,
+    # Step 1: Sign in to YouTube account
+    st.subheader("1. Sign in to your YouTube account")
+    st.caption(
+        "Use a browser where you're already logged in, or upload a cookies file. "
+        "This avoids \"not a bot\" and region/age limits."
+    )
+    auth_method = st.radio(
+        "Sign in with",
+        ["Don't sign in", "Chrome", "Edge", "Firefox", "Brave", "Opera", "Upload cookies file"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    cookiefile_path: str | Path | None = None
+    browser: str | None = None
+    if auth_method == "Upload cookies file":
+        st.caption("Export cookies (e.g. \"Get cookies.txt\" extension) from youtube.com, then upload:")
+        cookie_file = st.file_uploader(
+            "Upload cookies.txt",
+            type=["txt"],
             label_visibility="collapsed",
         )
-        cookiefile_path: str | Path | None = None
-        browser: str | None = None
-        if auth_method == "Upload cookies file":
-            cookie_file = st.file_uploader(
-                "Upload cookies.txt (Netscape format)",
-                type=["txt"],
-                label_visibility="collapsed",
-            )
-            if cookie_file:
-                # Save to temp file; yt-dlp needs a path
-                cookiefile_path = Path("downloads") / "_cookies.txt"
-                ensure_download_dir()
-                cookiefile_path.write_bytes(cookie_file.getvalue())
-        elif auth_method != "None":
-            browser = auth_method
+        if cookie_file:
+            cookiefile_path = Path("downloads") / "_cookies.txt"
+            ensure_download_dir()
+            cookiefile_path.write_bytes(cookie_file.getvalue())
+    elif auth_method != "Don't sign in":
+        browser = auth_method
+        st.caption(f"Using **{browser}** — make sure you're logged into YouTube there.")
 
-    url = st.text_input("YouTube URL", placeholder="https://www.youtube.com/watch?v=... or playlist URL")
-    download_clicked = st.button("Download")
+    signed_in = browser is not None or cookiefile_path is not None
+    if signed_in:
+        st.success("Signed in. Paste a URL below and click Download.")
+
+    st.divider()
+
+    # Step 2: Paste URL and download
+    st.subheader("2. Paste URL and download")
+    url = st.text_input(
+        "YouTube URL",
+        placeholder="https://www.youtube.com/watch?v=... or playlist URL",
+        label_visibility="collapsed",
+    )
+    download_clicked = st.button("Download", type="primary")
 
     if download_clicked:
         if not url.strip():
