@@ -1,70 +1,90 @@
 # YouTube Video / Playlist Downloader
 
-Simple Streamlit web app to download a single YouTube video or an entire playlist, and rename files with safe titles.
+A Streamlit web app to download a single YouTube video or an entire playlist. Files are saved with safe, sanitized titles.
 
 ## Features
 
 - **Single video or playlist**: Paste any YouTube video or playlist URL.
-- **Safe filenames**: Removes characters like `\`, `/`, `?`, `|`, `:`, `*`, `"`, `<`, `>` and collapses extra spaces.
-- **Per-video download buttons**: After processing, click to download each video file from the browser.
-- **Playlist support**: For playlist URLs, all videos are downloaded.
-- **Basic YouTube auth support**: Can use browser cookies or a `cookies.txt` file to bypass “Sign in to confirm you’re not a bot”.
+- **Safe filenames**: Strips invalid characters (`\`, `/`, `?`, `|`, `:`, `*`, `"`, `<`, `>`) and collapses extra spaces.
+- **Per-video download buttons**: After processing, download each file from the browser.
+- **Playlist support**: Download all videos from a playlist in one go.
+- **Authentication options**: Use browser cookies or a `cookies.txt` file to handle “Sign in to confirm you’re not a bot”.
 
 ## Requirements
 
-- Python 3.9+ (recommended)
-- `ffmpeg` available in your `PATH` (for best format handling with `yt-dlp`)
+- Python 3.9+
+- **ffmpeg** in your `PATH` (for best format handling with yt-dlp)
 
 ## Installation
 
 ```bash
-cd c:\Andy\github\youtube_video_download
+cd youtube_video_download
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS / Linux
 pip install -r requirements.txt
 ```
 
-If `ffmpeg` is not installed, you can:
-- Install it via a package manager (e.g. `choco install ffmpeg` on Windows with Chocolatey), or
-- Download a static build and add the `bin` folder to your `PATH`.
+**ffmpeg** (if needed):
+
+- Windows: `choco install ffmpeg` (Chocolatey), or add a static build’s `bin` folder to `PATH`.
+- macOS: `brew install ffmpeg`
+- Linux: install via your package manager.
+
+For dev containers or systems that use `packages.txt`, `ffmpeg` is listed there.
 
 ## Run the app
+
+Activate the venv, then:
 
 ```bash
 streamlit run app.py
 ```
 
-Then open the URL that Streamlit prints in the terminal (usually `http://localhost:8501`).
+If `streamlit` is not on your PATH, run:
+
+```bash
+.venv\Scripts\streamlit run app.py    # Windows
+.venv/bin/streamlit run app.py        # macOS / Linux
+```
+
+Or:
+
+```bash
+.venv\Scripts\python -m streamlit run app.py
+```
+
+Open the URL Streamlit prints (usually `http://localhost:8501`).
 
 ## How to use
 
 1. Open the app in your browser.
-2. (Optional but recommended) Open the **Authentication** section:
-   - If YouTube sometimes shows “Sign in to confirm you’re not a bot”, select:
-     - A browser where you are logged into YouTube (Chrome, Edge, Firefox, Brave, Opera), **or**
-     - “Upload cookies file” and upload a `cookies.txt` exported from your browser.
-3. Paste a YouTube **video URL** or **playlist URL**.
+2. (Optional) In **Authentication**:
+   - Choose a browser where you’re logged into YouTube (Chrome, Edge, Firefox, Brave, Opera), **or**
+   - Use **Upload cookies file** and upload a `cookies.txt` from your browser.
+3. Paste a YouTube **video** or **playlist** URL.
 4. Click **Download**.
-5. After download finishes, use the **Download \<filename\>** buttons to save files to your computer.
+5. Use the **Download \<filename\>** buttons to save files to your computer.
 
-## Exporting cookies.txt (recommended way)
+## Exporting cookies.txt
 
-Because YouTube is strict about bots, some videos or playlists may require authentication. The most reliable method is to export cookies to a `cookies.txt` file and upload it in the app.
+For videos that require login, export cookies and upload them in the app:
 
-General steps (Chrome as example):
+1. Install a cookies exporter (e.g. **Get cookies.txt** in Chrome).
+2. Log in at `https://www.youtube.com` and export cookies for `youtube.com` as `cookies.txt`.
+3. In the app: **Authentication** → **Upload cookies file** → select `cookies.txt`.
+4. Paste your URL and click **Download**.
 
-1. Install a cookies exporter extension such as **“Get cookies.txt”**.
-2. Visit `https://www.youtube.com` in Chrome and make sure you are logged in.
-3. Use the extension to export cookies for `youtube.com` as `cookies.txt`.
-4. In the Streamlit app:
-   - Open the **Authentication** expander.
-   - Choose **“Upload cookies file”**.
-   - Upload the `cookies.txt` file.
-5. Paste your YouTube URL and click **Download**.
+## Project layout
 
-## Notes / Troubleshooting
+- `app.py` – Streamlit app (uses **yt-dlp** for downloads).
+- `requirements.txt` – Python deps (streamlit, yt-dlp).
+- `packages.txt` – System deps (e.g. ffmpeg for dev containers).
+- `downloads/` – Default folder for downloaded videos (created on first run).
 
-- If you see an error like **“Sign in to confirm you’re not a bot”**, you must use browser cookies (either via “Upload cookies file” or a supported browser).
-- If you see **“Requested format is not available”**, the app automatically retries using a more generic format; if it still fails it may be a region‑restricted, private, or otherwise blocked video.
-- Downloaded video files are first stored under the local `downloads` folder, then renamed using a sanitized version of the YouTube title.
+## Troubleshooting
 
+- **“streamilt” / command not found**: Use **streamlit** (with a **t**). Run from the project folder with the venv activated, or use `.venv\Scripts\streamlit run app.py`.
+- **“Sign in to confirm you’re not a bot”**: Use browser cookies (upload `cookies.txt` or pick a logged-in browser in Authentication).
+- **“Requested format is not available”**: The app retries with other formats; persistent failures may mean the video is restricted, private, or blocked.
+- Downloaded files are stored in `downloads/` and renamed using a sanitized version of the video title.
