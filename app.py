@@ -217,18 +217,27 @@ def main() -> None:
     with col1:
         verify_clicked = st.button("Verify login")
     if verify_clicked:
-        ok, err = verify_youtube_login(cookiefile=cookiefile_path, browser=browser)
-        if ok:
-            st.session_state.youtube_logged_in = True
-            st.session_state.auth_cookiefile = cookiefile_path
-            st.session_state.auth_browser = browser
-            st.success("Login verified. You can now paste a URL and download below.")
-        else:
+        if not cookiefile_path and not browser:
+            st.warning(
+                "Please **upload a cookies file** or **select a browser** where you're logged into YouTube, then click Verify login. "
+                "Download without cookies usually fails with **403 Forbidden**."
+            )
             st.session_state.youtube_logged_in = False
             st.session_state.auth_cookiefile = None
             st.session_state.auth_browser = None
-            st.error(f"Login failed: {err}")
-            st.caption("Re-export cookies from youtube.com (while logged in) and try again.")
+        else:
+            ok, err = verify_youtube_login(cookiefile=cookiefile_path, browser=browser)
+            if ok:
+                st.session_state.youtube_logged_in = True
+                st.session_state.auth_cookiefile = cookiefile_path
+                st.session_state.auth_browser = browser
+                st.success("Login verified. You can now paste a URL and download below.")
+            else:
+                st.session_state.youtube_logged_in = False
+                st.session_state.auth_cookiefile = None
+                st.session_state.auth_browser = None
+                st.error(f"Login failed: {err}")
+                st.caption("Re-export cookies from youtube.com (while logged in) and try again.")
 
     if st.session_state.youtube_logged_in:
         c1, c2 = st.columns([3, 1])
@@ -285,11 +294,16 @@ def main() -> None:
                         "Please use **Upload cookies file** in Step 1: export cookies from your browser, then upload here."
                     )
                 elif "403" in err_msg or "Forbidden" in err_msg:
+                    no_cookies = not st.session_state.auth_cookiefile and not st.session_state.auth_browser
                     st.info(
-                        "**403 Forbidden** often means cookies are expired or YouTube is blocking the request. Try: "
-                        "(1) Re-export **cookies.txt** from your browser (visit youtube.com while logged in, then export). "
-                        "(2) Export in a **private/incognito** window and upload immediately. "
-                        "(3) Use a VPN or try again later if your IP was rate-limited."
+                        "**403 Forbidden** often means cookies are expired or YouTube is blocking the request. "
+                        + (
+                            "**You are not using cookies.** Click **Log out**, then upload **cookies.txt** in Step 1 and click **Verify login** again. "
+                            if no_cookies
+                            else "Try: (1) Re-export **cookies.txt** (visit youtube.com while logged in). "
+                            "(2) Export in a **private/incognito** window and upload. "
+                            "(3) Use a VPN or try again later if rate-limited."
+                        )
                     )
                 return
 
