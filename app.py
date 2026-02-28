@@ -89,16 +89,20 @@ def download_videos(
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
     except DownloadError as e:
-        # Some videos/playlists fail with "Requested format is not available".
-        # Retry once with a very simple, generic format selection.
-        if "Requested format is not available" not in str(e):
+        err_msg = str(e)
+        # Retry with single-format (no merge) when ffmpeg is missing (e.g. on Streamlit Cloud).
+        if "ffmpeg" in err_msg or "merging of multiple formats" in err_msg:
+            fallback_opts = dict(ydl_opts)
+            fallback_opts["format"] = "best[ext=mp4]"  # single file, no merge needed
+            with YoutubeDL(fallback_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        elif "Requested format is not available" in err_msg:
+            fallback_opts = dict(ydl_opts)
+            fallback_opts["format"] = "best[ext=mp4]"
+            with YoutubeDL(fallback_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        else:
             raise
-
-        fallback_opts = dict(ydl_opts)
-        fallback_opts["format"] = "best[ext=mp4]"  # only mp4, no other formats
-
-        with YoutubeDL(fallback_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
 
     if "entries" in info:  # playlist or multi-video URL
         for entry in info.get("entries") or []:
