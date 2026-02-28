@@ -72,43 +72,53 @@ def download_videos(
         # Ignore any global yt-dlp.conf on the system that might request
         # an unavailable format (e.g. fixed itag like 22).
         "ignoreconfig": True,
-        # Only download .mp4 (merge with ffmpeg if needed).
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+        # Prefer any best video+audio, merge to .mp4 (avoids "format not available" when YouTube has no mp4).
+        "format": "bestvideo+bestaudio/best[ext=mp4]/best",
         "merge_output_format": "mp4",
     }
 
     if cookiefile and Path(cookiefile).exists():
         ydl_opts["cookiefile"] = str(cookiefile)
     elif browser:
-        # Use cookies from browser to avoid "Sign in to confirm you're not a bot"
         ydl_opts["cookiesfrombrowser"] = (browser.lower(),)
+
+    # When using cookies, try Android client first (often avoids 403), then web.
+    if cookiefile or browser:
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
 
     files: List[Path] = []
 
+    def _do_download(opts: dict):
+        with YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=True)
+
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-    except DownloadError as e:
+        info = _do_download(ydl_opts)
+    except Exception as e:
         err_msg = str(e)
+        # 403 Forbidden: try Android-only client (often works when web + cookies fail).
+        if (cookiefile or browser) and ("403" in err_msg or "Forbidden" in err_msg):
+            try:
+                retry_opts = dict(ydl_opts)
+                retry_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+                info = _do_download(retry_opts)
+            except Exception:
+                raise e
         # Retry with single-format (no merge) when ffmpeg is missing (e.g. on Streamlit Cloud).
-        if "ffmpeg" in err_msg or "merging of multiple formats" in err_msg:
+        elif "ffmpeg" in err_msg or "merging of multiple formats" in err_msg:
             fallback_opts = dict(ydl_opts)
-            fallback_opts["format"] = "best[ext=mp4]"  # single file, no merge needed
-            with YoutubeDL(fallback_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            fallback_opts["format"] = "best[ext=mp4]"
+            info = _do_download(fallback_opts)
+        # Requested format not available: try single mp4 then any format merged to mp4.
         elif "Requested format is not available" in err_msg:
-            # Cloud/anon requests often get fewer formats; try single mp4 then any format merged to mp4.
             try:
                 fallback_opts = dict(ydl_opts)
                 fallback_opts["format"] = "best[ext=mp4]"
-                with YoutubeDL(fallback_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-            except DownloadError:
-                # Take any video+audio and merge to mp4 (works when YouTube only offers webm etc.).
+                info = _do_download(fallback_opts)
+            except Exception:
                 fallback_opts = dict(ydl_opts)
                 fallback_opts["format"] = "bestvideo+bestaudio/best"
-                with YoutubeDL(fallback_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                info = _do_download(fallback_opts)
         else:
             raise
 
@@ -199,6 +209,13 @@ def main() -> None:
                     st.info(
                         "Browser sign-in does not work on Streamlit Cloud (no browser installed). "
                         "Please use **Upload cookies file** in Step 1: export cookies from your browser, then upload here."
+                    )
+                elif "403" in err_msg or "Forbidden" in err_msg:
+                    st.info(
+                        "**403 Forbidden** often means cookies are expired or YouTube is blocking the request. Try: "
+                        "(1) Re-export **cookies.txt** from your browser (visit youtube.com while logged in, then export). "
+                        "(2) Export in a **private/incognito** window and upload immediately. "
+                        "(3) Use a VPN or try again later if your IP was rate-limited."
                     )
                 return
 
