@@ -137,8 +137,49 @@ def download_videos(
     return files
 
 
+# Short public YouTube URL used only to verify that cookies/session work (no download).
+VERIFY_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+
+
+def verify_youtube_login(
+    *,
+    cookiefile: str | Path | None = None,
+    browser: str | None = None,
+) -> tuple[bool, str | None]:
+    """
+    Verify that YouTube session (cookies or browser) works.
+    Returns (True, None) on success, (False, error_message) on failure.
+    """
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreconfig": True,
+        "extract_flat": True,
+        "skip_download": True,
+    }
+    if cookiefile and Path(cookiefile).exists():
+        opts["cookiefile"] = str(cookiefile)
+    elif browser:
+        opts["cookiesfrombrowser"] = (browser.lower(),)
+    if cookiefile or browser:
+        opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+    try:
+        with YoutubeDL(opts) as ydl:
+            ydl.extract_info(VERIFY_URL, download=False)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 def main() -> None:
     st.set_page_config(page_title="YouTube Downloader", page_icon="🎬", layout="centered")
+
+    if "youtube_logged_in" not in st.session_state:
+        st.session_state.youtube_logged_in = False
+    if "auth_cookiefile" not in st.session_state:
+        st.session_state.auth_cookiefile = None
+    if "auth_browser" not in st.session_state:
+        st.session_state.auth_browser = None
 
     st.title("YouTube Video / Playlist Downloader")
 
@@ -146,8 +187,8 @@ def main() -> None:
     st.subheader("1. Sign in to your YouTube account")
     st.caption(
         "Use a browser where you're already logged in, or upload a cookies file. "
-        "This avoids \"not a bot\" and region/age limits. "
-        "**On Streamlit Cloud:** only **Upload cookies file** works (browser option is for local run only)."
+        "Then click **Verify login**. Only after verification can you download. "
+        "**On Streamlit Cloud:** use **Upload cookies file** only."
     )
     auth_method = st.radio(
         "Sign in with",
@@ -172,14 +213,47 @@ def main() -> None:
         browser = auth_method
         st.caption(f"Using **{browser}** — make sure you're logged into YouTube there.")
 
-    signed_in = browser is not None or cookiefile_path is not None
-    if signed_in:
-        st.success("Signed in. Paste a URL below and click Download.")
+    col1, col2, _ = st.columns([1, 1, 2])
+    with col1:
+        verify_clicked = st.button("Verify login")
+    if verify_clicked:
+        ok, err = verify_youtube_login(cookiefile=cookiefile_path, browser=browser)
+        if ok:
+            st.session_state.youtube_logged_in = True
+            st.session_state.auth_cookiefile = cookiefile_path
+            st.session_state.auth_browser = browser
+            st.success("Login verified. You can now paste a URL and download below.")
+        else:
+            st.session_state.youtube_logged_in = False
+            st.session_state.auth_cookiefile = None
+            st.session_state.auth_browser = None
+            st.error(f"Login failed: {err}")
+            st.caption("Re-export cookies from youtube.com (while logged in) and try again.")
+
+    if st.session_state.youtube_logged_in:
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.success("You are logged in. Paste a URL below to download.")
+        with c2:
+            if st.button("Log out"):
+                st.session_state.youtube_logged_in = False
+                st.session_state.auth_cookiefile = None
+                st.session_state.auth_browser = None
+                st.rerun()
 
     st.divider()
 
-    # Step 2: Paste URL and download
+    # Step 2: Paste URL and download (only after login verified)
     st.subheader("2. Paste URL and download")
+    if not st.session_state.youtube_logged_in:
+        st.warning("Please complete Step 1 and click **Verify login** first. Download is only available after login is verified.")
+        url = st.text_input(
+            "YouTube URL (disabled until logged in)",
+            placeholder="Verify login above first",
+            label_visibility="collapsed",
+            disabled=True,
+        )
+        return
     url = st.text_input(
         "YouTube URL",
         placeholder="https://www.youtube.com/watch?v=... or playlist URL",
@@ -199,8 +273,8 @@ def main() -> None:
                 files = download_videos(
                     url.strip(),
                     download_dir,
-                    browser=browser,
-                    cookiefile=cookiefile_path,
+                    browser=st.session_state.auth_browser,
+                    cookiefile=st.session_state.auth_cookiefile,
                 )
             except Exception as e:  # noqa: BLE001
                 err_msg = str(e)
